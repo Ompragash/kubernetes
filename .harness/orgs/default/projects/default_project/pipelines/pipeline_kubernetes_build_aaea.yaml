@@ -1,0 +1,64 @@
+pipeline:
+  id: pipeline_kubernetes_build_aaea
+  name: pipeline_kubernetes_build_aaea
+  stages:
+    - name: Build and Test
+      runtime: cloud
+      platform:
+        os: linux
+        arch: amd64
+      clone:
+        enabled: true
+      cache:
+        enabled: true
+      steps:
+        - name: Install Go
+          id: install_go
+          run:
+            shell: bash
+            script: |-
+              GO_VERSION=$(cat .go-version | tr -d '\n')
+              echo "Installing Go ${GO_VERSION}"
+              curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz
+              sudo rm -rf /usr/local/go
+              sudo tar -C /usr/local -xzf /tmp/go.tar.gz
+              rm /tmp/go.tar.gz
+              export PATH=/usr/local/go/bin:$PATH
+              go version
+        - name: Run Unit Tests
+          id: run_tests
+          run:
+            shell: bash
+            script: |-
+              set -o pipefail
+              export PATH=/usr/local/go/bin:$PATH
+              export GOPATH=/harness/.cache/go
+              export GOMODCACHE=/harness/.cache/go/pkg/mod
+              export GOCACHE=/harness/.cache/go-build
+              mkdir -p .harness/reports .harness/coverage
+
+              # Run tests with JUnit report output and coverage
+              export KUBE_JUNIT_REPORT_DIR=.harness/reports
+              export KUBE_COVER=y
+              export KUBE_COVER_REPORT_DIR=.harness/coverage
+
+              # Run make test
+              make test
+            report:
+              type: junit
+              paths:
+                - .harness/reports/*.xml
+        - name: Upload Coverage
+          id: upload_coverage
+          run:
+            shell: bash
+            script: |-
+              # Find and upload the coverage file
+              if [ -f ".harness/coverage/combined-coverage.out" ]; then
+                hcli cov upload --file=".harness/coverage/combined-coverage.out"
+              else
+                echo "Coverage file not found, skipping upload"
+                ls -la .harness/coverage/ || true
+              fi
+  tags:
+    onboarding: "true"
