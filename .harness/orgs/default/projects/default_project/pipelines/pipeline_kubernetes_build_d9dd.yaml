@@ -1,0 +1,64 @@
+pipeline:
+  id: pipeline_kubernetes_build_d9dd
+  name: pipeline_kubernetes_build_d9dd
+  stages:
+    - name: Build and Test
+      id: build_and_test
+      runtime: cloud
+      platform:
+        os: linux
+        arch: amd64
+      clone:
+        enabled: true
+      cache:
+        enabled: true
+      steps:
+        - name: Setup Go
+          id: setup_go
+          template:
+            uses: setupGo@1.0.1
+            with:
+              version: auto
+        - name: Unit Tests
+          id: unit_tests
+          run:
+            shell: bash
+            script: |-
+              set -euo pipefail
+
+              # Set up cache directories outside of workspace to avoid recursive discovery
+              export GOPATH=/harness/.cache/go
+              export GOMODCACHE=/harness/.cache/go/pkg/mod
+              export GOCACHE=/harness/.cache/go-build
+
+              # Create report directories
+              mkdir -p .harness/reports .harness/coverage
+
+              # Verify Go version
+              go version
+
+              # Run tests with JUnit output and coverage
+              # KUBE_JUNIT_REPORT_DIR enables gotestsum JUnit XML output
+              # KUBE_COVER=y enables coverage collection
+              export KUBE_JUNIT_REPORT_DIR=.harness/reports
+              export KUBE_COVER=y
+              export KUBE_COVER_REPORT_DIR=.harness/coverage
+
+              # Disable race detector to reduce CI time on this large codebase
+              export KUBE_RACE=""
+
+              # Run the Kubernetes test suite
+              make test
+            report:
+              type: junit
+              paths:
+                - .harness/reports/*.xml
+        - name: Upload Coverage
+          id: upload_coverage
+          run:
+            shell: bash
+            script: |-
+              test -s ".harness/coverage/combined-coverage.out"
+              hcli cov upload --file=".harness/coverage/combined-coverage.out"
+  tags:
+    onboarding: "true"
