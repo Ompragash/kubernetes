@@ -1,0 +1,69 @@
+pipeline:
+  id: pipeline_kubernetes_build_3457
+  name: pipeline_kubernetes_build_3457
+  stages:
+    - name: Build and Test
+      id: build_and_test
+      runtime: cloud
+      platform:
+        os: linux
+        arch: amd64
+      clone:
+        enabled: true
+      cache:
+        enabled: true
+      steps:
+        - name: Setup Go
+          id: setup_go
+          run:
+            shell: bash
+            script: |-
+              GO_VERSION=$(cat .go-version | tr -d '[:space:]')
+              echo "Required Go version: ${GO_VERSION}"
+
+              if command -v go &> /dev/null; then
+                CURRENT_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
+                echo "Current Go version: ${CURRENT_VERSION}"
+                if [[ "${CURRENT_VERSION}" == "${GO_VERSION}" ]]; then
+                  echo "Go ${GO_VERSION} is already installed"
+                  exit 0
+                fi
+              fi
+
+              echo "Installing Go ${GO_VERSION}..."
+              curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz
+              sudo rm -rf /usr/local/go
+              sudo tar -C /usr/local -xzf /tmp/go.tar.gz
+              rm /tmp/go.tar.gz
+              /usr/local/go/bin/go version
+        - name: Test
+          id: test
+          run:
+            shell: bash
+            script: |-
+              export PATH="/usr/local/go/bin:$PATH"
+              export GOPATH=/harness/.cache/go
+              export GOMODCACHE=/harness/.cache/go/pkg/mod
+              export GOCACHE=/harness/.cache/go-build
+
+              go version
+
+              mkdir -p .harness/reports .harness/coverage
+
+              KUBE_JUNIT_REPORT_DIR=.harness/reports \
+              KUBE_COVER=y \
+              KUBE_COVER_REPORT_DIR=.harness/coverage \
+              make test
+            report:
+              type: junit
+              paths:
+                - .harness/reports/*.xml
+        - name: Upload Coverage
+          id: upload_coverage
+          run:
+            shell: bash
+            script: |-
+              test -s ".harness/coverage/combined-coverage.out"
+              hcli cov upload --file=".harness/coverage/combined-coverage.out"
+  tags:
+    onboarding: "true"
