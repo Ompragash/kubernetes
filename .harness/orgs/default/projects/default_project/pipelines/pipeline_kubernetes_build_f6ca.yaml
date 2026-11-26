@@ -1,0 +1,69 @@
+pipeline:
+  id: pipeline_kubernetes_build_f6ca
+  name: pipeline_kubernetes_build_f6ca
+  stages:
+    - name: Build and Test
+      id: build_and_test
+      runtime: cloud
+      platform:
+        os: linux
+        arch: amd64
+      clone:
+        enabled: true
+      cache:
+        enabled: true
+      steps:
+        - name: Setup Go
+          id: setup_go
+          run:
+            shell: bash
+            script: |-
+              set -euo pipefail
+              GO_VERSION="$(cat .go-version)"
+              echo "Installing Go ${GO_VERSION}"
+              curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz
+              sudo rm -rf /usr/local/go
+              sudo tar -C /usr/local -xzf /tmp/go.tar.gz
+              export PATH="/usr/local/go/bin:${PATH}"
+              go version
+        - name: Build
+          id: build
+          run:
+            shell: bash
+            script: |-
+              set -euo pipefail
+              export PATH="/usr/local/go/bin:${PATH}"
+              export GOPATH=/harness/.cache/go
+              export GOMODCACHE=/harness/.cache/go/pkg/mod
+              export GOCACHE=/harness/.cache/go-build
+              go version
+              make all
+        - name: Test
+          id: test
+          run:
+            shell: bash
+            env:
+              CI: "true"
+            script: |-
+              set -uo pipefail
+              export PATH="/usr/local/go/bin:${PATH}"
+              export GOPATH=/harness/.cache/go
+              export GOMODCACHE=/harness/.cache/go/pkg/mod
+              export GOCACHE=/harness/.cache/go-build
+              export PATH="$(go env GOPATH)/bin:${PATH}"
+              mkdir -p .harness/reports
+              go install github.com/jstemmer/go-junit-report/v2@v2.1.0
+              set +e
+              make test 2>&1 | tee .harness/reports/go-test.log
+              test_status=${PIPESTATUS[0]}
+              "$(go env GOPATH)/bin/go-junit-report" -set-exit-code < .harness/reports/go-test.log > .harness/reports/junit.xml
+              report_status=$?
+              set -e
+              if [ "$test_status" -ne 0 ]; then exit "$test_status"; fi
+              exit "$report_status"
+            report:
+              type: junit
+              paths:
+                - .harness/reports/junit.xml
+  tags:
+    onboarding: "true"
