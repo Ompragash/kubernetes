@@ -1,0 +1,64 @@
+pipeline:
+  id: pipeline_kubernetes_build_53b7
+  name: pipeline_kubernetes_build_53b7
+  stages:
+    - name: Build and Test
+      id: build_and_test
+      runtime: cloud
+      platform:
+        os: linux
+        arch: amd64
+      clone:
+        enabled: true
+      cache:
+        enabled: true
+      steps:
+        - name: Build
+          id: build
+          run:
+            shell: bash
+            script: |-
+              set -euo pipefail
+              GO_VERSION=1.27.1
+              if ! /usr/local/go/bin/go version 2>/dev/null | grep -q "go${GO_VERSION} "; then
+                curl -sSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz
+                sudo rm -rf /usr/local/go
+                sudo tar -C /usr/local -xzf /tmp/go.tgz
+              fi
+              export PATH="/usr/local/go/bin:${PATH}"
+              go version
+              make
+        - name: Test
+          id: test
+          run:
+            shell: bash
+            script: |-
+              set -euo pipefail
+              export CI=true
+              GO_VERSION=1.27.1
+              if ! /usr/local/go/bin/go version 2>/dev/null | grep -q "go${GO_VERSION} "; then
+                curl -sSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz
+                sudo rm -rf /usr/local/go
+                sudo tar -C /usr/local -xzf /tmp/go.tgz
+              fi
+              export PATH="/usr/local/go/bin:${PATH}"
+              go version
+              mkdir -p "$(pwd)/.harness/reports" "$(pwd)/.harness/coverage"
+              export KUBE_JUNIT_REPORT_DIR="$(pwd)/.harness/reports"
+              export KUBE_COVER=y
+              export KUBE_COVER_REPORT_DIR="$(pwd)/.harness/coverage"
+              make test
+            report:
+              type: junit
+              paths:
+                - .harness/reports/junit_*.xml
+        - name: Upload Coverage
+          id: upload_coverage
+          run:
+            shell: bash
+            script: |-
+              set -euo pipefail
+              test -s ".harness/coverage/combined-coverage.out"
+              hcli cov upload --file=".harness/coverage/combined-coverage.out"
+  tags:
+    onboarding: "true"
